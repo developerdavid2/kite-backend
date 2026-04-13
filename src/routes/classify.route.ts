@@ -3,6 +3,6 @@ import { classifyName } from "../controllers/classify.controller";
 
 const router = Router();
 
-router.get("/classify", classifyName);
+router.get("/", classifyName);
 
 export default router;
