@@ -61,7 +61,7 @@ The server starts at `http://localhost:3000` by default. Set `PORT` environment 
 ### Endpoint
 
 ```
-GET /api/v1/classify?name={name}
+GET /api/classify?name={name}
 ```
 
 ### Success Response (200)
@@ -191,7 +191,7 @@ The application uses a global error middleware that catches all unhandled errors
 ### Happy Path — Valid Name
 
 ```bash
-curl "http://localhost:3000/api/v1/classify?name=john"
+curl "http://localhost:3000/api/classify?name=john"
 ```
 
 Expected: 200 success response with male gender prediction.
@@ -199,7 +199,7 @@ Expected: 200 success response with male gender prediction.
 ### Missing Name Parameter
 
 ```bash
-curl "http://localhost:3000/api/v1/classify"
+curl "http://localhost:3000/api/classify"
 ```
 
 Expected: 400 "Missing or empty name parameter"
@@ -207,7 +207,7 @@ Expected: 400 "Missing or empty name parameter"
 ### Empty Name
 
 ```bash
-curl "http://localhost:3000/api/v1/classify?name="
+curl "http://localhost:3000/api/classify?name="
 ```
 
 Expected: 400 "Missing or empty name parameter"
@@ -215,7 +215,7 @@ Expected: 400 "Missing or empty name parameter"
 ### Array Name (Invalid Type)
 
 ```bash
-curl "http://localhost:3000/api/v1/classify?name[]=john"
+curl "http://localhost:3000/api/classify?name[]=john"
 ```
 
 Expected: 422 "name is not a string"
@@ -223,7 +223,7 @@ Expected: 422 "name is not a string"
 ### Unknown Name (No Prediction Available)
 
 ```bash
-curl "http://localhost:3000/api/v1/classify?name=xyzabc123notaname"
+curl "http://localhost:3000/api/classify?name=xyzabc123notaname"
 ```
 
 Expected: 404 "No prediction available for the provided name"
