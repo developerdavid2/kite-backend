@@ -1,70 +1,93 @@
 # kite-backend
 
-A production-grade Node.js + Express + TypeScript API that predicts gender based on a given name using the Genderize API.
+A production-grade REST API built with Node.js, Express, and TypeScript.
+Integrates with three external APIs to classify names by gender, age, and
+nationality. Stores results in MongoDB with full CRUD support.
+
+---
 
 ## Tech Stack
 
-- **Node.js** (v18+) - Runtime environment
-- **Express** (v5.2.1) - Web framework
-- **TypeScript** (v6.0.2) - Static type safety
-- **Axios** (v1.15.0) - HTTP client
-- **Vercel** - Serverless deployment platform
+| Technology       | Purpose                 |
+| ---------------- | ----------------------- |
+| **Node.js** v18+ | Runtime                 |
+| **Express** v5   | Web framework           |
+| **TypeScript**   | Strict typing, no `any` |
+| **Mongoose**     | MongoDB ODM             |
+| **Axios**        | HTTP client             |
+| **UUID v7**      | Unique profile IDs      |
+| **Vercel**       | Serverless deployment   |
 
-## Architecture Overview
+---
 
-The application follows a layered architecture with clear separation of concerns:
+## Architecture
 
 ```
 src/
-├── routes/        → Express Router definitions
-├── controllers/   → Request handlers and orchestration
-├── services/      → Business logic and external API calls
-├── utils/         → Helper functions (response formatting)
-├── types/         → TypeScript interfaces and type definitions
-└── middleware/    → Global error handling
+├── config/         → Database connection with cache
+├── models/         → Mongoose schema and model
+├── routes/         → Express router definitions
+├── controllers/    → Request validation and orchestration
+├── services/       → External API calls and business logic
+├── utils/          → Response formatting and classification helpers
+├── types/          → All TypeScript interfaces
+└── middleware/     → Global error handler
 ```
 
-**Separation of Concerns:**
+**Separation of concerns:**
 
-- **routes/** - Maps HTTP methods and paths to controllers. No business logic.
-- **controllers/** - Orchestrates the request flow. Validates input, calls services, formats responses using utility functions. No try/catch—all errors propagate via `next(error)`.
-- **services/** - Pure business logic. Handles external API calls (Genderize). Throws typed errors for downstream handling. No `req`/`res` objects.
-- **utils/** - Reusable pure functions. Response builders ensure consistent API response shapes across all endpoints.
-- **types/** - Single source of truth for all TypeScript interfaces. No `any` types. Includes: `GenderizeApiResponse` (raw API), `ClassifyResult` (processed response), `ApiSuccessResponse<T>` (generic wrapper), `ApiErrorResponse` (error wrapper).
-- **middleware/** - Global error handler. Catches all unhandled errors, distinguishes between API failures (502) and server errors (500), logs with timestamp.
+- `routes/` — maps HTTP paths to controllers, nothing else
+- `controllers/` — validates input, calls services, formats responses
+- `services/` — all external API logic, throws typed errors
+- `utils/` — pure functions, no side effects
+- `types/` — single source of truth for all interfaces
+- `middleware/` — catches all unhandled errors, returns correct status
+
+---
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js v18 or later
-- npm v9 or later
+- Node.js v18+
+- MongoDB Atlas account (free tier works)
 
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/kite-backend.git
+git clone https://github.com/developerdavid2/kite-backend.git
 cd kite-backend
 npm install
 ```
 
-### Running Locally
+### Environment Variables
+
+Create a `.env` file in the root:
+
+```env
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/kite-backend
+PORT=3000
+```
+
+### Run Locally
 
 ```bash
 npm run dev
 ```
 
-The server starts at `http://localhost:3000` by default. Set `PORT` environment variable to use a different port.
+Server starts at `http://localhost:3000`
+
+---
 
 ## API Reference
 
-### Endpoint
+### Stage 0 — Name Classification
 
-```
-GET /api/classify?name={name}
-```
+#### `GET /api/classify?name={name}`
 
-### Success Response (200)
+Calls the Genderize API and returns a processed gender prediction.
+
+**Success Response `200`**
 
 ```json
 {
@@ -75,192 +98,276 @@ GET /api/classify?name={name}
     "probability": 0.99,
     "sample_size": 1234,
     "is_confident": true,
-    "processed_at": "2026-04-13T14:30:45.123Z"
+    "processed_at": "2026-04-01T12:00:00Z"
   }
 }
 ```
 
-### Error Responses
+**Processing Rules**
 
-**400 Bad Request** — Missing or empty `name` parameter
+- `count` from Genderize is renamed to `sample_size`
+- `is_confident` = `probability >= 0.7` AND `sample_size >= 100`
+- `processed_at` is generated fresh on every request via `new Date().toISOString()`
+
+**Error Responses**
+
+| Status | Cause                   | Message                                         |
+| ------ | ----------------------- | ----------------------------------------------- |
+| `400`  | Missing or empty name   | `Missing or empty name parameter`               |
+| `422`  | name is not a string    | `name is not a string`                          |
+| `404`  | No prediction available | `No prediction available for the provided name` |
+| `502`  | Genderize API failed    | `Genderize returned an invalid response`        |
+| `500`  | Unexpected error        | `Internal server error`                         |
+
+---
+
+### Stage 1 — Profile Management
+
+#### `POST /api/profiles`
+
+Calls Genderize, Agify, and Nationalize APIs in parallel and stores the
+result. If the name already exists, returns the existing profile without
+calling the APIs again.
+
+**Request Body**
+
+```json
+{ "name": "ella" }
+```
+
+**Success Response `201 Created`**
 
 ```json
 {
-  "status": "error",
-  "message": "Missing or empty name parameter"
+  "status": "success",
+  "data": {
+    "id": "b3f9c1e2-7d4a-4c91-9c2a-1f0a8e5b6d12",
+    "name": "ella",
+    "gender": "female",
+    "gender_probability": 0.99,
+    "sample_size": 1234,
+    "age": 46,
+    "age_group": "adult",
+    "country_id": "DK",
+    "country_probability": 0.85,
+    "created_at": "2026-04-01T12:00:00Z"
+  }
 }
 ```
 
-**422 Unprocessable Entity** — `name` is not a string (e.g., array, number)
+**Duplicate Response `200`**
 
 ```json
 {
-  "status": "error",
-  "message": "name is not a string"
+  "status": "success",
+  "message": "Profile already exists",
+  "data": { "...existing profile..." }
 }
 ```
 
-**404 Not Found** — Genderize API returns `gender: null` or `count: 0`
+---
+
+#### `GET /api/profiles`
+
+Returns all profiles. Supports optional case-insensitive filtering.
+
+**Query Parameters**
+
+| Parameter    | Type   | Example            |
+| ------------ | ------ | ------------------ |
+| `gender`     | string | `?gender=male`     |
+| `country_id` | string | `?country_id=NG`   |
+| `age_group`  | string | `?age_group=adult` |
+
+Parameters are combinable: `?gender=male&country_id=NG&age_group=adult`
+
+**Success Response `200`**
 
 ```json
 {
-  "status": "error",
-  "message": "No prediction available for the provided name"
+  "status": "success",
+  "count": 2,
+  "data": [
+    {
+      "id": "id-1",
+      "name": "john",
+      "gender": "male",
+      "age": 25,
+      "age_group": "adult",
+      "country_id": "US"
+    }
+  ]
 }
 ```
 
-**502 Bad Gateway** — Genderize API unreachable or failed
+---
+
+#### `GET /api/profiles/:id`
+
+Returns a single profile by UUID.
+
+**Success Response `200`**
 
 ```json
 {
-  "status": "error",
-  "message": "Failed to fetch gender prediction from Genderize API"
+  "status": "success",
+  "data": {
+    "id": "b3f9c1e2-7d4a-4c91-9c2a-1f0a8e5b6d12",
+    "name": "john",
+    "gender": "male",
+    "gender_probability": 0.99,
+    "sample_size": 1234,
+    "age": 25,
+    "age_group": "adult",
+    "country_id": "US",
+    "country_probability": 0.85,
+    "created_at": "2026-04-01T12:00:00Z"
+  }
 }
 ```
 
-**500 Internal Server Error** — Unexpected server error
+---
 
-```json
-{
-  "status": "error",
-  "message": "Internal server error"
-}
-```
+#### `DELETE /api/profiles/:id`
 
-### Response Field Reference
+Deletes a profile by UUID. Returns `204 No Content` on success.
 
-| Field               | Type    | Description                                            |
-| ------------------- | ------- | ------------------------------------------------------ |
-| `status`            | string  | Always `"success"` for 200, `"error"` for failure      |
-| `data`              | object  | Response payload (only present on success)             |
-| `data.name`         | string  | The name provided in the query parameter               |
-| `data.gender`       | string  | Predicted gender: `"male"` or `"female"`               |
-| `data.probability`  | number  | Confidence score between 0 and 1                       |
-| `data.sample_size`  | number  | Sample count from Genderize API (renamed from `count`) |
-| `data.is_confident` | boolean | `true` if probability ≥ 0.7 AND sample_size ≥ 100      |
-| `data.processed_at` | string  | ISO 8601 timestamp when request was processed (UTC)    |
-| `message`           | string  | Error message (only present on failure)                |
+---
 
-## Processing Logic
+## Classification Logic
 
-### Field Transformation
+### Age Groups
 
-The Genderize API returns a `count` field. This is renamed to `sample_size` in the response for clarity.
+| Age Range | Group      |
+| --------- | ---------- |
+| 0 – 12    | `child`    |
+| 13 – 19   | `teenager` |
+| 20 – 59   | `adult`    |
+| 60+       | `senior`   |
 
-### Confidence Calculation
+### Nationality
 
-The `is_confident` field is computed as:
+The country with the highest probability in the Nationalize response
+array is selected as `country_id`.
 
-```
-is_confident = (probability >= 0.7) AND (sample_size >= 100)
-```
-
-**Both conditions must be true.** If either fails, `is_confident` is `false`.
-
-### Processed Timestamp
-
-The `processed_at` field is generated on every single request using `new Date().toISOString()`. It is **not** cached and represents when the server processed the request in UTC.
+---
 
 ## Error Handling
 
-The application uses a global error middleware that catches all unhandled errors from controllers and services.
+All errors follow this shape:
 
-**Error Flow:**
+```json
+{
+  "status": "error",
+  "message": ""
+}
+```
 
-1. **Controllers** validate input and call services synchronously.
-2. **Services** throw typed errors on API failures (`GenderizeApiError`).
-3. **Controllers** propagate errors via `next(error)` instead of try/catch.
-4. **Error Middleware** catches all errors and determines HTTP status:
-   - `GenderizeApiError` → **502 Bad Gateway** (upstream API failure)
-   - Any other error → **500 Internal Server Error**
-5. All errors are logged with an ISO 8601 timestamp for debugging.
+**External API edge cases — returns `502`, nothing is stored:**
 
-**HTTP Status Codes:**
+- Genderize returns `gender: null` or `count: 0`
+- Agify returns `age: null`
+- Nationalize returns an empty country array
 
-| Status | Cause                                  | Handling                       |
-| ------ | -------------------------------------- | ------------------------------ |
-| 200    | Successfully predicted gender          | Return `ClassifyResult`        |
-| 400    | Missing or empty `name` parameter      | Controller validation          |
-| 422    | `name` is not a string or is an array  | Controller validation          |
-| 404    | Genderize returns `null` or `count: 0` | Controller checks API response |
-| 502    | Genderize API unreachable              | Error middleware               |
-| 500    | Unexpected error (uncaught exception)  | Error middleware               |
+**Profile errors:**
 
-## Testing the API
+| Status | Cause                    |
+| ------ | ------------------------ |
+| `400`  | Missing or empty name    |
+| `422`  | name is not a string     |
+| `404`  | Profile not found        |
+| `502`  | Any external API failure |
+| `500`  | Unexpected server error  |
 
-### Happy Path — Valid Name
+---
+
+## Testing
+
+### Classify Endpoint
 
 ```bash
+# Happy path
 curl "http://localhost:3000/api/classify?name=john"
-```
 
-Expected: 200 success response with male gender prediction.
-
-### Missing Name Parameter
-
-```bash
+# Missing name → 400
 curl "http://localhost:3000/api/classify"
-```
 
-Expected: 400 "Missing or empty name parameter"
-
-### Empty Name
-
-```bash
+# Empty name → 400
 curl "http://localhost:3000/api/classify?name="
-```
 
-Expected: 400 "Missing or empty name parameter"
-
-### Array Name (Invalid Type)
-
-```bash
+# Array name → 422
 curl "http://localhost:3000/api/classify?name[]=john"
+
+# Unknown name → 404
+curl "http://localhost:3000/api/classify?name=xzqwerty"
 ```
 
-Expected: 422 "name is not a string"
-
-### Unknown Name (No Prediction Available)
+### Profiles Endpoints
 
 ```bash
-curl "http://localhost:3000/api/classify?name=xyzabc123notaname"
+# Create
+curl -X POST http://localhost:3000/api/profiles \
+  -H "Content-Type: application/json" \
+  -d '{"name": "john"}'
+
+# Get all
+curl http://localhost:3000/api/profiles
+
+# Filter
+curl "http://localhost:3000/api/profiles?gender=male&country_id=US"
+
+# Get one
+curl http://localhost:3000/api/profiles/{id}
+
+# Delete
+curl -X DELETE http://localhost:3000/api/profiles/{id}
+
+# Duplicate
+curl -X POST http://localhost:3000/api/profiles \
+  -H "Content-Type: application/json" \
+  -d '{"name": "john"}'
+
+# Missing name → 400
+curl -X POST http://localhost:3000/api/profiles \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Wrong type → 422
+curl -X POST http://localhost:3000/api/profiles \
+  -H "Content-Type: application/json" \
+  -d '{"name": 123}'
+
+# Unknown name → 502
+curl -X POST http://localhost:3000/api/profiles \
+  -H "Content-Type: application/json" \
+  -d '{"name": "xzqwerty"}'
 ```
 
-Expected: 404 "No prediction available for the provided name"
+---
 
 ## Deployment
 
-### Vercel
+Deployed on Vercel as a serverless function.
 
-Deploy to Vercel with zero configuration:
+- `api/index.ts` exports the Express app as default — Vercel handles the server
+- `vercel.json` routes all traffic to `api/index.ts`
+
+Add `MONGODB_URI` in the Vercel dashboard under
+**Settings → Environment Variables**.
 
 ```bash
-npm install -g vercel
-vercel login
+# Deploy via CLI
 vercel
+
+# Or push to GitHub — Vercel auto-deploys on push
+git push origin main
 ```
 
-**vercel.json** Configuration:
+---
 
-The `vercel.json` file specifies:
+## Environment Variables
 
-- **builds** — Compiles `api/index.ts` using `@vercel/node` runtime
-- **routes** — Routes all requests (`/(.*)` ) to the serverless function at `api/index.ts`
-- **version** — Vercel platform version 2
-
-The serverless entry point (`api/index.ts`) imports and re-exports the Express app from `src/app.ts`. No changes to application code are required for deployment.
-
-### Build and Start Commands
-
-```bash
-npm run build  # Compiles TypeScript to dist/
-npm start      # Runs the compiled JavaScript on local machine
-```
-
-## Environment
-
-**No environment variables required.** The API works out of the box.
-
-**External Dependencies:**
-
-- **api.genderize.io** — GraphQL and REST API for gender prediction based on name. Requests are made via `https://api.genderize.io?name={name}`. No API key required.
+| Variable      | Required | Description                      |
+| ------------- | -------- | -------------------------------- |
+| `MONGODB_URI` | ✅ Yes   | MongoDB Atlas connection string  |
+| `PORT`        | ❌ No    | Local dev port (default: `3000`) |
