@@ -1,4 +1,4 @@
-import { v7 as uuidv7 } from "uuid";
+import { v4 as uuidv4 } from "uuid";
 import { connectDatabase } from "../config/database";
 import { ProfileModel } from "../models/profile.model";
 import { fetchGenderPrediction } from "./genderize.service";
@@ -66,7 +66,7 @@ export async function createProfile(
   const topCountry = getTopCountry(nationalityData.country);
 
   const profile = await ProfileModel.create({
-    id: uuidv7(),
+    id: uuidv4(),
     name: normalizedName,
     gender: genderData.gender,
     gender_probability: genderData.probability,
