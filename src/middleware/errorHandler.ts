@@ -1,6 +1,8 @@
 import { ErrorRequestHandler } from "express";
 import { errorResponse } from "../utils/response.util";
 import { GenderizeApiError } from "../services/genderize.service";
+import { AgifyApiError } from "../services/agify.service";
+import { NationalizeApiError } from "../services/nationalize.service";
 
 export const errorHandler: ErrorRequestHandler = (
   err,
@@ -11,7 +13,11 @@ export const errorHandler: ErrorRequestHandler = (
   const timestamp = new Date().toISOString();
   console.error(`[${timestamp}] Error:`, err);
 
-  if (err instanceof GenderizeApiError) {
+  if (
+    err instanceof GenderizeApiError ||
+    err instanceof AgifyApiError ||
+    err instanceof NationalizeApiError
+  ) {
     res.status(502).json(errorResponse(err.message));
     return;
   }
