@@ -1,4 +1,4 @@
-import { prisma } from "../config/postgres";
+import { prisma } from "../lib/prisma";
 import { ProfileFilterParams, ProfileV2 } from "../types/profileV2.types";
 
 function formatProfile(profile: any): ProfileV2 {
